@@ -9,6 +9,7 @@ from alembic import context
 # access to the values within the .ini file in use.
 from app.core.config import settings
 from sqlmodel import SQLModel
+import app.models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

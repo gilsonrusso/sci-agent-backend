@@ -3,11 +3,15 @@ uvicorn
 sqlmodel
 alembic
 langchain
+langchain-ollama
+langchain-community
 langgraph
 python-multipart
 pyjwt
 pwdlib[argon2]
 psycopg2-binary
 requests
+pytest-asyncio
 httpx
+websockets
 python-dotenv
