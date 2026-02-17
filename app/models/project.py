@@ -1,7 +1,11 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, SQLModel, Relationship
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .project_member import ProjectMember
 
 
 class ProjectBase(SQLModel):
@@ -16,6 +20,8 @@ class Project(ProjectBase, table=True):
     owner_id: uuid.UUID = Field(foreign_key="users.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    members: list["ProjectMember"] = Relationship(back_populates="project")
 
 
 class ProjectCreate(ProjectBase):

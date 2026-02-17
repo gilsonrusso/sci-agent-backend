@@ -1,6 +1,10 @@
 import uuid
 from sqlmodel import Field, SQLModel
-from typing import Optional
+from sqlmodel import Field, SQLModel, Relationship
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .project_member import ProjectMember
 
 
 class UserBase(SQLModel):
@@ -23,3 +27,5 @@ class User(UserBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
     is_superuser: bool = False
+
+    project_memberships: list["ProjectMember"] = Relationship(back_populates="user")

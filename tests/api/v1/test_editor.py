@@ -45,6 +45,7 @@ def test_compile_endpoint(client: TestClient):
     response = client.post(
         f"{settings.API_V1_STR}/editor/{project_id}/compile",
         headers=headers,
+        json={"content": "Hello World"},
     )
 
     # Check response type and success

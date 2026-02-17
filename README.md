@@ -59,6 +59,14 @@ To insert initial data (like the default LaTeX template), run the seed script:
 python -m app.db.seed
 ```
 
+## Seeding Users
+
+To populate the database with test users (`alice@gmail.com`, etc.) and clear existing data:
+
+```bash
+PYTHONPATH=. .venv/bin/python app/db/seed_users.py
+```
+
 ## Running the Server
 
 Start the development server with hot-reload:

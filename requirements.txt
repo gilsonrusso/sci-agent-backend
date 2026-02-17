@@ -11,7 +11,11 @@ pyjwt
 pwdlib[argon2]
 psycopg2-binary
 requests
-pytest-asyncio
+pydantic-settings
+ypy-websocket
+y-py
+aiosqlite # Optional, but good for async DB if needed, though we use SQLModel
+yncio
 httpx
 websockets
 python-dotenv

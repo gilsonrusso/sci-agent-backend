@@ -1,86 +1,100 @@
 import logging
 from typing import List
 import uuid
+import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Response
 from app.models.project import Project
 from app.api.deps import SessionDep
 from app.services.compiler import compiler_service
+from app.services.collaboration import collaboration_service
 from app.schemas.compiler import CompileRequest
+
+
+class FastAPIwebsocketAdapter:
+    def __init__(self, websocket: WebSocket):
+        self._websocket = websocket
+
+    async def send(self, message: bytes):
+        await self._websocket.send_bytes(message)
+
+    async def recv(self) -> bytes:
+        data = await self._websocket.receive_bytes()
+        return data
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return await self.recv()
+        except WebSocketDisconnect:
+            raise StopAsyncIteration
+        except Exception as e:
+            raise StopAsyncIteration
+
+    @property
+    def path(self) -> str:
+        return self._websocket.url.path
+
 
 router = APIRouter()
 
 
-# Simple Connection Manager for WebSocket
-class ConnectionManager:
-    def __init__(self):
-        # Store active connections: project_id -> List[WebSocket]
-        self.active_connections: dict[str, List[WebSocket]] = {}
-
-    async def connect(self, websocket: WebSocket, project_id: str):
-        await websocket.accept()
-        if project_id not in self.active_connections:
-            self.active_connections[project_id] = []
-        self.active_connections[project_id] = [
-            c
-            for c in self.active_connections[project_id]
-            if c.client_state.name != "DISCONNECTED"
-        ]
-        self.active_connections[project_id].append(websocket)
-
-    def disconnect(self, websocket: WebSocket, project_id: str):
-        if project_id in self.active_connections:
-            if websocket in self.active_connections[project_id]:
-                self.active_connections[project_id].remove(websocket)
-            if not self.active_connections[project_id]:
-                del self.active_connections[project_id]
-
-    async def broadcast(self, message: bytes, project_id: str, sender: WebSocket):
-        if project_id in self.active_connections:
-            # Clean up disconnected
-            self.active_connections[project_id] = [
-                c
-                for c in self.active_connections[project_id]
-                if c.client_state.name != "DISCONNECTED"
-            ]
-
-            for connection in self.active_connections[project_id]:
-                if connection != sender:
-                    try:
-                        await connection.send_bytes(message)
-                    except Exception as e:
-                        print(f"Error broadcasting to client: {e}")
-
-
-manager = ConnectionManager()
-
-
-@router.websocket("/{project_id}/ws")
-async def websocket_endpoint(websocket: WebSocket, project_id: str):
-    await manager.connect(websocket, project_id)
+@router.websocket("/{project_id}/ws/{room_name}")
+async def websocket_endpoint(
+    websocket: WebSocket,
+    project_id: str,
+    room_name: str,
+):
     try:
-        while True:
-            data = await websocket.receive_bytes()
-            await manager.broadcast(data, project_id, websocket)
-    except WebSocketDisconnect:
-        manager.disconnect(websocket, project_id)
+        room = collaboration_service.get_room(project_id)
     except Exception as e:
-        print(f"WebSocket error: {e}")
-        manager.disconnect(websocket, project_id)
+        await websocket.close(code=1011)  # internal error
+        return
+
+    await websocket.accept()
+
+    # Wait for room to be ready (loaded from DB)
+    while not room.ready:
+        await asyncio.sleep(0.1)
+
+    adapter = FastAPIwebsocketAdapter(websocket)
+    try:
+        await room.serve(adapter)
+    except Exception as e:
+        # Check if it's a disconnect
+        # ypy-websocket might raise or just return
+        pass
 
 
 @router.post("/{project_id}/compile")
 async def compile_project(
     project_id: uuid.UUID,
-    request: CompileRequest,
+    # request: CompileRequest, # Content from client is ignored or optional
     session: SessionDep,
 ):
     """
     Compile the project's LaTeX content into a PDF.
+    Uses Server-Side State (YDoc or DB).
     """
+    project_id_str = str(project_id)
+    content = ""
+
+    # 1. Check active room
+    room = collaboration_service.rooms.get(project_id_str)
+    if room and room.ready:
+        content = str(room.ydoc.get_text("codemirror"))
+        logging.info(f"Compiling from Active YRoom: {project_id_str}")
+    else:
+        # 2. Check DB
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        content = project.content or ""
+        logging.info(f"Compiling from DB: {project_id_str}")
+
     try:
-        pdf_bytes = await compiler_service.compile_project(
-            str(project_id), request.content
-        )
+        pdf_bytes = await compiler_service.compile_project(project_id_str, content)
         return Response(content=pdf_bytes, media_type="application/pdf")
     except Exception as e:
         print(f"Compilation error: {e}")
