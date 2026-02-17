@@ -19,9 +19,23 @@ class CollaborationService:
     def get_room(self, project_id: str) -> YRoom:
         if project_id not in self.rooms:
             logger.info(f"Creating new YRoom for project {project_id}")
-            self.rooms[project_id] = YRoom(ready=False)
+            room = YRoom(ready=False)
+            self.rooms[project_id] = room
+
+            # Start the room loop in background
+            asyncio.create_task(self._run_room(room, project_id))
+
+            # Load content
             asyncio.create_task(self._load_room_from_db(project_id))
         return self.rooms[project_id]
+
+    async def _run_room(self, room: YRoom, project_id: str):
+        try:
+            await room.start()
+        except Exception as e:
+            logger.error(f"YRoom {project_id} crashed: {e}")
+            # If room crashes, remove it so it can be recreated
+            self.rooms.pop(project_id, None)
 
     async def _load_room_from_db(self, project_id: str):
         room = self.rooms[project_id]
