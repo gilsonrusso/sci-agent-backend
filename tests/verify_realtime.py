@@ -40,13 +40,11 @@ async def run_test():
             print("Client A connected.")
             # Consume sync step 1
             msg = await ws_a.recv()
-            print(f"Client A received: {msg[0]} {msg[1]}")
 
             print("Connecting Client B...")
             async with websockets.connect(WS_URL) as ws_b:
                 print("Client B connected.")
                 msg_b = await ws_b.recv()
-                print(f"Client B received: {msg_b[0]} {msg_b[1]}")
 
                 # Client A sends update
                 print("Client A sending update...")
@@ -63,7 +61,6 @@ async def run_test():
                 print("Client B waiting for update...")
                 try:
                     update_b = await asyncio.wait_for(ws_b.recv(), timeout=5.0)
-                    print(f"Client B received message: len={len(update_b)}")
                     if (
                         update_b[0] == YMessageType.SYNC
                         and update_b[1] == YSyncMessageType.SYNC_UPDATE
@@ -80,9 +77,6 @@ async def run_test():
         proc.terminate()
         try:
             outs, errs = proc.communicate(timeout=2)
-            print("Uvicorn Stub Output:")
-            print(outs.decode())
-            print(errs.decode())
         except:
             proc.kill()
 
