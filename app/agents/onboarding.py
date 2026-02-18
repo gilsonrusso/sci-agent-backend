@@ -110,35 +110,72 @@ def node_clarify_concept(state: OnboardingState):
     """
     # FIX: If articles selected but no deadline, get deadline
     if state.get("selected_articles") and len(state["selected_articles"]) > 0:
+        # Clear suggested_articles to prevent re-sending to frontend
+        update = {"suggested_articles": []}
+
         if not state.get("deadline"):
-            return {"current_step": "process_deadline"}
-        return {"current_step": "generate_roadmap"}
+            update["current_step"] = "process_deadline"
+        else:
+            update["current_step"] = "generate_roadmap"
+
+        return update
 
     messages = state["messages"]
     last_message = messages[-1].content
 
-    # Simple heuristic: If conversation is short, assume we need to clarify
-    # In a real scenario, use structured output to classify intent
-    if len(messages) <= 1:
-        # First message from user
+    # Intent Classification
+    classification_prompt = f"""
+    Analyze the user's last message: "{last_message}".
+    
+    Determine if the user is:
+    A) Proposing a specific research topic/area (e.g., "Machine Learning in Medicine", "I want to study X").
+    B) Asking a general question or chatting (e.g., "What is a paper?", "How does this work?", "Hello").
+    
+    Return JSON:
+    {{
+        "is_research_topic": boolean, 
+        "topic": "extracted CORE topic only (remove 'I want to study', 'about', etc). E.g., 'Micro Frontends'", 
+        "response": "appropriate response if not a topic, else null"
+    }}
+    """
+
+    try:
         response = llm.invoke(
             [
-                SystemMessage(
-                    content=SYSTEM_PROMPT
-                    + " The user just started. Acknowledge and ask for specific focus if needed."
-                ),
-                HumanMessage(content=last_message),
+                SystemMessage(content="Classify user intent. JSON only."),
+                HumanMessage(content=classification_prompt),
             ]
         )
+        content = response.content.replace("```json", "").replace("```", "").strip()
+        data = json.loads(content)
+
+        if data.get("is_research_topic"):
+            # User defined a topic, move to search
+            # We can optionally refine the topic here or just pass it
+            return {"topic": data.get("topic"), "current_step": "search"}
+        else:
+            # User is chatting or asking questions
+            # We stay in clarify loop
+            msg = AIMessage(
+                content=data.get("response")
+                or "Poderia especificar melhor o tema da sua pesquisa?"
+            )
+            return {
+                "messages": [msg],
+                "current_step": "clarify",
+            }
+
+    except Exception as e:
+        print(f"Classification error: {e}")
+        # Fallback to clarifying if we can't parse
         return {
-            "messages": [response],
-            "topic": last_message,
+            "messages": [
+                AIMessage(
+                    content="Desculpe, não entendi. Poderia detalhar qual é o tema da sua pesquisa?"
+                )
+            ],
             "current_step": "clarify",
         }
-
-    # If we already have history, maybe we are ready to search
-    # For MVP, let's assume 2nd turn is ready
-    return {"current_step": "search"}
 
 
 async def node_search_references(state: OnboardingState):
@@ -273,7 +310,7 @@ def node_generate_roadmap(state: OnboardingState):
     prompt = f"""Based on the research topic '{topic}', the deadline '{deadline}', and the selected articles:
     {json.dumps(selected_articles, default=str)}
     
-    1. CREATE a project title (academic and concise).
+    1. CREATE a project title (academic and concise). DO NOT use the raw user topic as the title. Make it sound professional (e.g., 'Analysis of X...').
     2. CREATE a preliminary roadmap (4-5 tasks with deadlines).
     3. CREATE a brief Abstract (100-150 words) in Portuguese.
     

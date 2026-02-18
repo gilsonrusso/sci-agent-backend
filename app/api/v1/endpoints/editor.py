@@ -40,12 +40,16 @@ class FastAPIwebsocketAdapter:
 router = APIRouter()
 
 
-@router.websocket("/{project_id}/ws/{room_name}")
+@router.websocket("/ws/{project_id}")
 async def websocket_endpoint(
     websocket: WebSocket,
     project_id: str,
-    room_name: str,
 ):
+    """
+    WebSocket endpoint for Yjs collaboration.
+    URL: /api/v1/editor/ws/{project_id}
+    The {project_id} here captures the 'room name' sent by y-websocket.
+    """
     try:
         room = collaboration_service.get_room(project_id)
     except Exception as e:
@@ -53,7 +57,7 @@ async def websocket_endpoint(
         return
 
     await websocket.accept()
-    logging.info(f"WebSocket accepted for project {project_id}, room {room_name}")
+    logging.info(f"WebSocket accepted for project/room {project_id}")
 
     # Wait for room to be ready (loaded from DB)
     wait_count = 0

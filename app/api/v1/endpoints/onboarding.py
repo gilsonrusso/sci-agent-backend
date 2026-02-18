@@ -160,7 +160,11 @@ async def chat_onboarding(request: ChatRequest):
         if result.get("suggested_articles"):
             structured_data["suggested_articles"] = result["suggested_articles"]
         if result.get("roadmap"):
-            structured_data["roadmap"] = result["roadmap"]
+            structured_data["roadmap"] = result.get("roadmap")
+        if result.get("project_title"):
+            structured_data["project_title"] = result.get("project_title")
+        if result.get("project_structure"):
+            structured_data["project_structure"] = result.get("project_structure")
 
         return ChatResponse(
             message=response_content,

@@ -22,23 +22,24 @@ async def test_memory():
         except Exception as e:
             print(f"Turn 0 Failed: {e}")
 
-    # Turn 1
+    # Turn 1: General Question (Should NOT advance)
     payload1 = {
-        "message": "Quero pesquisar sobre Machine Learning e Medicina",
+        "message": "O que é um artigo científico e quais as etapas?",
         "conversation_id": conv_id,
     }
-    print(f"\n--- Turn 1 ---")
+    print(f"\n--- Turn 1 (General Question - Should NOT advance) ---")
     async with httpx.AsyncClient() as client:
         r1 = await client.post(url, json=payload1, timeout=180.0)
         print(f"Status: {r1.status_code}")
         print(f"Response: {r1.json()['message'][:100]}...")
+        # Verify step is still 'clarify' (implicit, if it asks for topic)
 
-    # Turn 2
+    # Turn 2: Specific Topic (Should advance)
     payload2 = {
-        "message": "Tenho interesse na área de Diagnóstico Automático",
+        "message": "Quero pesquisar sobre Machine Learning e Medicina",
         "conversation_id": conv_id,
     }
-    print(f"\n--- Turn 2 ---")
+    print(f"\n--- Turn 2 (Specific Topic - Should Advance) ---")
     async with httpx.AsyncClient() as client:
         r2 = await client.post(url, json=payload2, timeout=180.0)
         print(f"Status: {r2.status_code}")
