@@ -19,7 +19,8 @@ class CollaborationService:
     def get_room(self, project_id: str) -> YRoom:
         if project_id not in self.rooms:
             logger.info(f"Creating new YRoom for project {project_id}")
-            room = YRoom(ready=False)
+            room = YRoom()
+            room.ready = False
             self.rooms[project_id] = room
 
             # Start the room loop in background
@@ -41,9 +42,13 @@ class CollaborationService:
         room = self.rooms[project_id]
 
         try:
+            logger.info(f"Loading room content from DB for project {project_id}")
             # Run blocking DB op in thread
             initial_content = await asyncio.to_thread(
                 self._fetch_content_sync, project_id
+            )
+            logger.info(
+                f"Fetched content for {project_id}: {len(initial_content) if initial_content else 0} chars"
             )
 
             if initial_content:
@@ -63,6 +68,7 @@ class CollaborationService:
 
         # Mark room as ready for connections
         room.ready = True
+        logger.info(f"Room {project_id} marked as ready.")
 
         # Setup save observer
         ytext = room.ydoc.get_text("codemirror")

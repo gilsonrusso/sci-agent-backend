@@ -8,4 +8,11 @@ with Session(engine) as session:
         session.commit()
         print("Dropped projectrole type.")
     except Exception as e:
-        print(f"Error dropping type: {e}")
+        print(f"Error dropping projectrole: {e}")
+
+    try:
+        session.exec(text("DROP TYPE IF EXISTS taskstatus CASCADE;"))
+        session.commit()
+        print("Dropped taskstatus type.")
+    except Exception as e:
+        print(f"Error dropping taskstatus: {e}")

@@ -35,3 +35,20 @@ def client_fixture(session: Session):
     client = TestClient(app)
     yield client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(name="async_client")
+async def async_client_fixture(session: Session):
+    from httpx import AsyncClient, ASGITransport
+
+    def get_session_override():
+        return session
+
+    app.dependency_overrides[get_session] = get_session_override
+
+    # Use ASGITransport to connect directly to the FastAPI app
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()

@@ -53,11 +53,17 @@ async def websocket_endpoint(
         return
 
     await websocket.accept()
+    logging.info(f"WebSocket accepted for project {project_id}, room {room_name}")
 
     # Wait for room to be ready (loaded from DB)
+    wait_count = 0
     while not room.ready:
+        if wait_count % 10 == 0:
+            logging.info(f"Waiting for room {project_id} to be ready... ({wait_count})")
         await asyncio.sleep(0.1)
+        wait_count += 1
 
+    logging.info(f"Room {project_id} is ready. Starting adapter.")
     adapter = FastAPIwebsocketAdapter(websocket)
     try:
         await room.serve(adapter)

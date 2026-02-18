@@ -67,6 +67,21 @@ To populate the database with test users (`alice@gmail.com`, etc.) and clear exi
 PYTHONPATH=. .venv/bin/python app/db/seed_users.py
 ```
 
+## Full Database Reset
+
+To completely wipe the database (drop all tables) and repopulate it with fresh seed data:
+
+```bash
+# 1. Drop all tables
+alembic downgrade base
+
+# 2. Re-create tables
+alembic upgrade head
+
+# 3. Seed data
+PYTHONPATH=. .venv/bin/python app/db/seed_users.py
+```
+
 ## Running the Server
 
 Start the development server with hot-reload:

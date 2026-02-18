@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Trigger reload
 from app.api.api import api_router
 from app.core.config import settings
 
