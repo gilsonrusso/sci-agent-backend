@@ -192,7 +192,7 @@ async def node_search_references(state: OnboardingState):
         results = []
 
     msg = AIMessage(
-        content=f"I found {len(results)} papers relevant to '{topic}'. Please select the ones you'd like to use."
+        content=f"Eu encontrei {len(results)} artigos relevantes para '{topic}'. Por favor, selecione os que você gostaria de usar."
     )
 
     return {

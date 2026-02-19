@@ -15,7 +15,15 @@ class FastAPIwebsocketAdapter:
         self._websocket = websocket
 
     async def send(self, message: bytes):
-        await self._websocket.send_bytes(message)
+        try:
+            await self._websocket.send_bytes(message)
+        except RuntimeError as e:
+            # Starlette raises RuntimeError if send is called after close
+            if 'Cannot call "send" once a close message has been sent' in str(e):
+                return
+            raise e
+        except Exception:
+            raise
 
     async def recv(self) -> bytes:
         data = await self._websocket.receive_bytes()

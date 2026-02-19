@@ -34,7 +34,11 @@ class CollaborationService:
         try:
             await room.start()
         except Exception as e:
-            logger.error(f"YRoom {project_id} crashed: {e}")
+            logger.exception(f"YRoom {project_id} crashed with exception: {e}")
+            if hasattr(e, "exceptions"):
+                for idx, sub_e in enumerate(e.exceptions):
+                    logger.error(f"Sub-exception {idx}: {sub_e}")
+
             # If room crashes, remove it so it can be recreated
             self.rooms.pop(project_id, None)
 
