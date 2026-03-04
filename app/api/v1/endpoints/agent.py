@@ -6,6 +6,10 @@ from langchain_core.messages import HumanMessage, AIMessage
 from app.api.deps import CurrentUser
 from app.schemas.agent import ChatRequest
 from app.agents.writer import writer_agent
+import os
+from app.core.observability import get_langfuse_handler
+
+langfuse_handler = get_langfuse_handler()
 
 router = APIRouter()
 
@@ -31,12 +35,17 @@ async def chat(
                 history.append(AIMessage(content=msg["content"]))
 
     async def generate():
+        config = {}
+        if langfuse_handler:
+            config["callbacks"] = [langfuse_handler]
+
         async for chunk in writer_agent.astream(
             {
                 "chat_history": history,
                 "document_content": request.context or "",
                 "input": request.message,
-            }
+            },
+            config=config,
         ):
             yield chunk
 

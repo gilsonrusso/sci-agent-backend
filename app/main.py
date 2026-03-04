@@ -4,8 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 # Trigger reload
 from app.api.api import api_router
 from app.core.config import settings
+from app.core.observability import setup_langfuse
 
 app = FastAPI(title="SciAgent Backend", version="1.0.0")
+
+# Setup observability
+setup_langfuse()
 
 # Set all CORS enabled origins
 if settings.BACKEND_CORS_ORIGINS:
