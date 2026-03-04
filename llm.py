@@ -10,7 +10,7 @@ llm_disponivie = [
 ]
 
 llm = ChatOllama(
-    model=llm_disponivie[0],
+    model=llm_disponivie[2],
     format="json",
     temperature=0.2,
     stream=False,
