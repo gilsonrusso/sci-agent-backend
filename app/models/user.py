@@ -2,6 +2,7 @@ import uuid
 from sqlmodel import Field, SQLModel
 from sqlmodel import Field, SQLModel, Relationship
 from typing import Optional, TYPE_CHECKING
+from .user_role import UserRole
 
 if TYPE_CHECKING:
     from .project_member import ProjectMember
@@ -10,6 +11,7 @@ if TYPE_CHECKING:
 class UserBase(SQLModel):
     email: str = Field(unique=True, index=True, max_length=255)
     full_name: Optional[str] = Field(default=None, max_length=255)
+    role: UserRole = Field(default=UserRole.AUTHOR)
     is_active: bool = True
 
 
