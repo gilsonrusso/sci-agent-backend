@@ -1,7 +1,7 @@
 from langchain_ollama import ChatOllama
 
 
-llm_disponivie = [
+llm_disponivel = [
     "qwen3-vl:4b",  # 3.3 GB - vision | tools | thinking
     "mistral:latest",  # 4.4 GB - tools | thinking
     "qwen3:4b",  # 2.5 GB - tools | thinking
@@ -10,7 +10,7 @@ llm_disponivie = [
 ]
 
 llm = ChatOllama(
-    model=llm_disponivie[2],
+    model="qwen3:4b",
     format="json",
     temperature=0.2,
     stream=False,

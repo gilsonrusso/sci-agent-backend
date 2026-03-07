@@ -30,3 +30,8 @@ dependencies = [
     "y-py>=0.6.2",
     "ypy-websocket>=0.12.4",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
