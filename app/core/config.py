@@ -28,7 +28,13 @@ class Settings(BaseSettings):
 
     # Gemini Configuration
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    # GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemini-3.1-flash-lite-preview"
+
+    # Langfuse Configuration
+    LANGFUSE_SECRET_KEY: str | None = None
+    LANGFUSE_PUBLIC_KEY: str | None = None
+    LANGFUSE_HOST: str = "http://localhost:3001"
 
     # Custom validator to parse CORS from string or list
     @property

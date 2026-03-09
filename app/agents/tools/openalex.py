@@ -76,7 +76,10 @@ async def search_academic_papers_openalex(
                     "title": w.get("title")
                     or w.get("display_name")
                     or "Título desconhecido",
-                    "authors": authors_str,
+                    "authors": [
+                        a.get("author", {}).get("display_name", "") for a in authorships
+                    ]
+                    or ["Autores desconhecidos"],
                     "year": w.get("publication_year"),
                     "venue": venue_str,
                     "snippet": snippet,
@@ -87,29 +90,9 @@ async def search_academic_papers_openalex(
 
     except httpx.HTTPStatusError as e:
         logger.error(f"[OpenAlex] Rate Limit ou Erro HTTP: {e}")
-        return [
-            {
-                "title": "Erro de Conexão na API",
-                "authors": "Sistema",
-                "year": 2024,
-                "venue": "Erro",
-                "snippet": f"A API do OpenAlex retornou um erro (HTTP {e.response.status_code}). Tente novamente em breve.",
-                "url": "",
-                "citation_count": 0,
-            }
-        ]
+        return f"ERRO_API_OPENALEX: A base retornou erro {e.response.status_code}. Tente trocar para Semantic Scholar ou refine a busca."
     except Exception as e:
         logger.error(f"[OpenAlex] Erro na requisição: {e}")
-        return [
-            {
-                "title": "Erro Interno da API",
-                "authors": "Sistema",
-                "year": 2024,
-                "venue": "Erro",
-                "snippet": f"Falha ao conectar no OpenAlex: {str(e)}",
-                "url": "",
-                "citation_count": 0,
-            }
-        ]
+        return f"ERRO_CONEXAO_OPENALEX: Não foi possível conectar ao OpenAlex: {str(e)}"
 
     return results

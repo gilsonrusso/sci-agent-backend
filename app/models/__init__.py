@@ -6,3 +6,4 @@ from .project_task import ProjectTask, ProjectTaskCreate, ProjectTaskUpdate, Tas
 from .audit_log import ProjectAuditLog
 from .stage_approval import StageApproval
 from .project_subsection import ProjectSubsection
+from .onboarding_session import OnboardingSession

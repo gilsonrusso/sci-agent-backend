@@ -39,7 +39,10 @@ async def search_academic_papers_s2(query: str, limit: int = 5) -> List[Dict[str
 
                 paper = {
                     "title": p.get("title") or "Título desconhecido",
-                    "authors": authors_str,
+                    "authors": [
+                        a.get("name", "") for a in authors_list if a.get("name")
+                    ]
+                    or ["Autores desconhecidos"],
                     "year": p.get("year"),
                     "venue": p.get("venue") or "",
                     "snippet": p.get("abstract")
@@ -52,29 +55,11 @@ async def search_academic_papers_s2(query: str, limit: int = 5) -> List[Dict[str
 
     except httpx.HTTPStatusError as e:
         logger.error(f"[SemanticScholar] Rate Limit ou Erro HTTP: {e}")
-        return [
-            {
-                "title": "Erro de Conexão na API",
-                "authors": "Sistema",
-                "year": 2024,
-                "venue": "Erro",
-                "snippet": f"A API do Semantic Scholar retornou um erro (HTTP {e.response.status_code}). Isso ocorre frequentemente por limites de taxa (Rate Limit). O usuário foi aconselhado a tentar OpenAlex no Frontend.",
-                "url": "",
-                "citation_count": 0,
-            }
-        ]
+        if e.response.status_code == 429:
+            return "ERRO_RATE_LIMIT: O Semantic Scholar atingiu o limite de requisições. Por favor, tente trocar a ferramenta de busca para 'OpenAlex' no menu de ferramentas ou aguarde alguns minutos."
+        return f"ERRO_HTTP_{e.response.status_code}: Falha na comunicação com Semantic Scholar."
     except Exception as e:
         logger.error(f"[SemanticScholar] Erro na requisição: {e}")
-        return [
-            {
-                "title": "Erro Interno da API",
-                "authors": "Sistema",
-                "year": 2024,
-                "venue": "Erro",
-                "snippet": f"Falha ao conectar no Semantic Scholar: {str(e)}",
-                "url": "",
-                "citation_count": 0,
-            }
-        ]
+        return f"ERRO_CONEXAO: Não foi possível conectar ao Semantic Scholar. Verifique sua conexão ou tente outra base."
 
     return results

@@ -1,49 +1,83 @@
-import json
-from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_core.tools import tool
+from langchain.agents.middleware import HumanInTheLoopMiddleware
 from app.core.llm import get_llm
+from app.db.session import Session, engine
+from app.infrastructure.repositories.sql_project_repository import SQLProjectRepository
+from app.domain.onboarding.entities import OnboardingProposta, OnboardingTask
+from app.application.use_cases.onboarding.create_project_use_case import (
+    CreateProjectFromOnboardingUseCase,
+)
+from app.infrastructure.events.event_bus import LocalEventBus
+from typing import Annotated
+from langchain_core.tools import InjectedToolArg
+from langchain.agents import create_agent
+from app.agents.state import OnboardingState
 
 
 @tool
-def create_project_and_roadmap(title: str, abstract: str, tasks: list[dict]):
+def create_project_and_roadmap(
+    title: str,
+    abstract: str,
+    tasks: list[dict],
+    state: Annotated[dict, InjectedToolArg],
+):
     """
-    Ferramenta final que salva o projeto no banco de dados e determina o cronograma da pesquisa.
-    O 'tasks' deve ser uma lista de dicionários contendo 'title', 'due_in_days' e 'description'.
+    Cria o projeto formal e o roadmap no banco de dados.
+    Esta ferramenta deve ser chamada assim que a proposta estiver pronta.
     """
-    # A implementação real chamaria um CRUD no banco de dados.
-    # Por ora, simulamos o sucesso.
-    return {
-        "status": "success",
-        "project": {"title": title, "abstract": abstract, "roadmap": tasks},
-    }
+    user_id = state.get("user_id")
+    if not user_id:
+        return {"status": "error", "message": "User ID missing"}
+
+    proposta = OnboardingProposta(
+        owner_id=user_id,
+        title=title,
+        abstract=abstract,
+        topic=state.get("refined_topic") or state.get("topic") or "Sem tema",
+        roadmap=[
+            OnboardingTask(
+                title=t.get("title", ""),
+                description=t.get("description", ""),
+                due_in_days=t.get("due_in_days", 7),
+            )
+            for t in tasks
+        ],
+        selected_articles=state.get("selected_articles", []),
+    )
+
+    try:
+        with Session(engine) as session:
+            repo = SQLProjectRepository(session)
+            use_case = CreateProjectFromOnboardingUseCase(repo, LocalEventBus())
+            project = use_case.execute(proposta)
+            return {"status": "success", "project_id": str(project.id)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
-CURATION_PROMPT = """Você é o **Curation & Project Manager** do SciAgent.
-Sua função é consolidar a ideia do usuário e os artigos encontrados em um Roadmap acionável e um Projeto Formal.
+CURATION_PROMPT = """Você é o **Gerente de Curadoria**.
+Sua única tarefa agora é consolidar os artigos selecionados em uma proposta formal.
 
-Quando acionado pelo Supervisor:
-1. Revise o tópico e os artigos.
-2. Crie um Título profissional.
-3. Crie um Resumo (Abstract) de ~100 palavras.
-4. Crie um cronograma de 4 a 5 passos lógicos (tasks).
-5. Chame a ferramenta `create_project_and_roadmap` com os dados estruturados."""
+**REGRAS CRÍTICAS:**
+1. Você **DEVE** chamar a ferramenta `create_project_and_roadmap` IMEDIATAMENTE após elaborar o título, resumo e tarefas.
+2. Não peça aprovação verbal. A chamada da ferramenta acionará automaticamente a interface de aprovação para o usuário.
+3. Seus argumentos para a ferramenta devem ser detalhados e técnicos.
+"""
 
 
 def get_curation_agent():
-    # Middleware para interceptar (pausar) o fluxo
-    # antes que o LLM chame a tool de salvar o projeto/roadmap.
+    # Usamos o middleware padrão que já funcionava para gerar interrupts
     hil_middleware = HumanInTheLoopMiddleware(
         interrupt_on={"create_project_and_roadmap": True},
-        description_prefix="Proposta de Projeto pendente de aprovação",
+        description_prefix="Proposta de Projeto",
     )
 
     llm = get_llm()
-    agent = create_agent(
+    return create_agent(
         model=llm,
         tools=[create_project_and_roadmap],
         system_prompt=CURATION_PROMPT,
         middleware=[hil_middleware],
+        state_schema=OnboardingState,
         name="curation_manager",
     )
-    return agent

@@ -29,5 +29,5 @@ def get_llm():
         base_url=settings.OLLAMA_BASE_URL,
         model=settings.OLLAMA_MODEL,
         temperature=0.3,
-        num_ctx=8192,
+        num_ctx=4096,
     )

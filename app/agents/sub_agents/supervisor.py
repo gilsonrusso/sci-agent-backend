@@ -4,6 +4,7 @@ from app.core.llm import get_llm
 from app.agents.sub_agents.idea_refiner import get_idea_refiner_agent
 from app.agents.sub_agents.search_specialist import get_search_specialist_agent
 from app.agents.sub_agents.curation import get_curation_agent
+from app.agents.state import OnboardingState
 
 # 1. Recuperamos os gráficos compilados nativos
 idea_refiner = get_idea_refiner_agent()
@@ -30,17 +31,28 @@ curation_manager_subagent = CompiledSubAgent(
 )
 
 # 2. Criamos o Supervisor
-SUPERVISOR_PROMPT = """Você é o **Supervisor Geral** do SciAgent.
-Sua função é guiar o usuário na concepção de um projeto de pesquisa delegando tarefas para sua equipe de especialistas (sub-agentes).
+SUPERVISOR_PROMPT = """Você é o **Supervisor Geral** do SciAgent, o orquestrador do Onboarding "Zero to Hero".
+Sua missão é ser um mentor ativo que nunca deixa o usuário sem resposta.
 
-Sua equipe:
-1. `idea_refiner`: Para ideias imaturas ou vagas que precisam ser espremidas na dor socrática.
-2. `search_specialist`: Quando o tema já está maduro e precisamos checar a literatura (artigos reais).
-3. `curation_manager`: Quando o usuário aprovou os artigos/tema e o próximo passo é criar o cronograma e o projeto formal.
+### REGRAS CRÍTICAS DE COMUNICAÇÃO (EVITE RESPOSTAS VAZIAS):
+1. **SEMPRE FALE**: Nunca envie uma resposta sem texto. Se você chamou um sub-agente, resuma o que ele está fazendo.
+2. **REPORTE ERROS**: Se um sub-agente (como o `search_specialist`) retornar um erro (ex: Rate Limit), você **DEVE** transcrever esse erro para o usuário em tom amigável e sugerir soluções (ex: trocar de base para OpenAlex).
+3. **MANTENHA O DIÁLOGO**: Se você não puder avançar de estágio, explique o motivo ao usuário (ex: "Ainda precisamos escolher os artigos antes de criar o cronograma").
 
-Fluxo:
-Sempre responda ou acione um sub-agente (usando a ferramenta `task`) baseado no estágio da conversa. Você gerencia a transição de Ideia -> Busca -> Fechamento. NUNCA DEIXE de acionar um especialista se o usuário solicitar algo que eles dominam.
-IMPORTANTE: Se o usuário estiver apenas dizendo "olá", "tudo bem?" ou fora de contexto científico (ex: pedindo piadas), APENAS RESPONDA DIRETAMENTE sem acionar NENHUM subagente. NUNCA invente nomes de subagentes que não estão na lista acima."""
+### REGRAS OBRIGATÓRIAS DE FLUXO (ESTRITO):
+1. **SEQUÊNCIA LINEAR**: Siga os estágios 1 -> 2 -> 3 -> 4 rigidamente.
+2. **ERRO NA BUSCA**: Se houver Rate Limit, **NÃO AVANCE**. Explique o erro e aguarde o usuário.
+3. **TRANSIÇÃO**:
+   - Estágio 2 -> 3: Só quando houver artigos.
+   - Estágio 3 -> 4: Só com artigos confirmados e prazo definido.
+
+### OS 4 ESTÁGIOS DO ONBOARDING:
+1. **Estágio 1: Ideação**: Dialogue para refinar o tema com `idea_refiner`.
+2. **Estágio 2: Busca**: Use `search_specialist`. Informe claramente o resultado ou erro.
+3. **Estágio 3: Seleção e Prazo**: Peça para o usuário selecionar artigos. Quando confirmado via `confirm_article_selection`, peça o prazo.
+4. **Estágio 4: Roadmap e Finalização**: Use o `curation_manager`.
+
+Lembre-se: Você é o mentor. Se algo der errado, você é quem explica e guia o usuário."""
 
 
 def get_onboarding_supervisor(checkpointer=None, **kwargs):
@@ -62,6 +74,7 @@ def get_onboarding_supervisor(checkpointer=None, **kwargs):
         system_prompt=SUPERVISOR_PROMPT,
         subagents=subagents,
         checkpointer=checkpointer,
+        context_schema=OnboardingState,
         name="supervisor_agent",
     )
     return supervisor
