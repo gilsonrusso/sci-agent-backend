@@ -1,5 +1,7 @@
-from typing import TypedDict, List, Optional, Dict, Any
+from typing import Annotated, Any, Dict, List, Optional, TypedDict
+
 from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
 
 
 class Article(TypedDict):
@@ -9,10 +11,6 @@ class Article(TypedDict):
     url: str
     snippet: str
     citation_count: int
-
-
-from langgraph.graph.message import add_messages
-from typing import Annotated
 
 
 class OnboardingState(TypedDict):

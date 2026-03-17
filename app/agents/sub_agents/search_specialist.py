@@ -14,7 +14,7 @@ async def execute_academic_search(query: str, config: RunnableConfig, limit: int
     Acione esta ferramenta para buscar referências para o tema atual.
     O termo de busca planejado será exibido abaixo.
     """
-    source = config.get("configurable", {}).get("search_source", "semantic_scholar")
+    source = config.get("configurable", {}).get("search_source", "openalex")
 
     if source == "openalex":
         from app.agents.tools.openalex import search_academic_papers_openalex
@@ -26,16 +26,30 @@ async def execute_academic_search(query: str, config: RunnableConfig, limit: int
         return await search_academic_papers_s2(query, limit=limit)
 
 
+from typing import Any, List, Dict, Annotated
+from langchain_core.tools import InjectedToolCallId
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
+
 @tool
-def confirm_article_selection(articles: list[dict]):
+def suggest_articles_to_user(
+    articles: List[Dict[str, Any]], 
+    tool_call_id: Annotated[str, InjectedToolCallId] = None
+):
     """
-    IMPORTANTE: Use esta ferramenta para confirmar a seleção FINAL dos artigos pelo usuário.
-    Ela salva os artigos escolhidos no estado permanente do projeto e limpa as sugestões.
+    IMPORTANTE: Use esta ferramenta para apresentar os artigos encontrados e pausar a execução
+    para que o usuário possa selecionar quais artigos ele deseja utilizar na pesquisa.
     """
     return Command(
         update={
             "selected_articles": articles,
             "suggested_articles": [],
+            "messages": [
+                ToolMessage(
+                    content="Artigos sugeridos com sucesso.",
+                    tool_call_id=tool_call_id,
+                )
+            ]
         }
     )
 
@@ -47,24 +61,29 @@ Sua função é traduzir temas de pesquisa em buscas acadêmicas rigorosas.
 1. **UMA BUSCA POR VEZ**: Nunca acione a ferramenta `execute_academic_search` mais de uma vez em uma única resposta.
 2. **GESTÃO DE FALHAS**:
    - Se a busca retornar erro (429) ou zero resultados, informe o Supervisor IMEDIATAMENTE.
-   - Sua resposta textual final deve descrever o erro (ex: "A busca no Semantic Scholar falhou por limite de requisições") para que o Supervisor possa avisar o usuário.
+   - Sua resposta textual final deve descrever o erro.
 3. **FLUXO DE SELEÇÃO**:
-    - Após a busca com sucesso, as referências aparecerão para o usuário.
-    - Quando o usuário confirmar sua escolha, use `confirm_article_selection`.
+    - Após a busca com sucesso e obter a lista de artigos, você DEVE chamar a ferramenta `suggest_articles_to_user` passando a lista de artigos formatada contendo 'title', 'authors', 'year', 'snippet' e 'url'.
+    - Isso é obrigatório para que o sistema interrompa e mostre as opções na tela do usuário.
 """
 
 
 def get_search_specialist_agent():
-    llm = get_llm()
-    agent = create_agent(
-        model=llm,
+    from langchain.agents.middleware import HumanInTheLoopMiddleware
+    return create_agent(
+        model=get_llm(),
         tools=[
             execute_academic_search,
-            confirm_article_selection,
+            suggest_articles_to_user,
         ],
         system_prompt=SEARCH_SPECIALIST_PROMPT,
-        middleware=[SearchResultStateMiddleware()],
+        middleware=[
+            SearchResultStateMiddleware(),
+            HumanInTheLoopMiddleware(
+                interrupt_on={"suggest_articles_to_user": True},
+                description_prefix="Seleção de Artigos",
+            )
+        ],
         state_schema=OnboardingState,
         name="search_specialist",
     )
-    return agent

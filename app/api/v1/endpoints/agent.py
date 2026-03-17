@@ -22,10 +22,6 @@ async def chat(
     """
     Chat with the AI Assistant about the project content.
     """
-    print(
-        f"Chat Request: message='{request.message}' context_len={len(request.context) if request.context else 0}"
-    )
-    # Convert history
     history = []
     if request.chat_history:
         for msg in request.chat_history:

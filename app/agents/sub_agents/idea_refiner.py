@@ -1,6 +1,7 @@
-from langchain_core.messages import SystemMessage
 from app.core.llm import get_llm
 from langchain.agents import create_agent
+from langchain.tools import tool
+from langchain_core.messages import SystemMessage
 
 REFINER_SYSTEM_PROMPT = """Você é o **Guia de Exploração (Idea Refiner)** do SciAgent.
 Sua missão é ajudar o usuário a dar um "norte" para sua ideia de pesquisa, sem sobrecarregá-lo com termos acadêmicos complexos ou perguntas profundas demais precocemente.
@@ -15,13 +16,9 @@ Seu objetivo é tornar a ideia "madura o suficiente" para que possamos fazer uma
 
 
 def get_idea_refiner_agent():
-    llm = get_llm()
-    # Atualmente, o Idea Refiner não chama tools complexas externas,
-    # age puramente no refinamento de linguagem com o input do usuário e o seu prompt
-    agent = create_agent(
-        model=llm,
-        tools=[],  # Sem tools no momento, apenas conversacional focado
+    return create_agent(
+        model=get_llm(),
+        tools=[],
         system_prompt=REFINER_SYSTEM_PROMPT,
-        name="idea_refiner",  # Tag para streaming
+        name="idea_refiner_agent",
     )
-    return agent

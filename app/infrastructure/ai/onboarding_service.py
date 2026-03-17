@@ -16,9 +16,9 @@ class OnboardingService:
 
     AGENT_NAME_MAPPING = {
         "supervisor_agent": "Supervisor",
-        "idea_refiner": "Guia de Exploração",
-        "search_specialist": "Especialista de Busca",
-        "curation_manager": "Gerente de Curadoria",
+        "idea_refiner_subagent": "Guia de Exploração",
+        "search_specialist_subagent": "Especialista de Busca",
+        "idea_refiner_subagent": "Gerente de Curadoria",
     }
 
     def extract_messages(self, messages: List[BaseMessage]) -> Dict[str, Any]:
@@ -104,7 +104,7 @@ class OnboardingService:
                         data["roadmap"] = req["args"].get("tasks", [])
                         data["project_title"] = req["args"].get("title", "")
                         data["abstract"] = req["args"].get("abstract", "")
-                    elif req["name"] == "confirm_article_selection":
+                    elif req["name"] == "suggest_articles_to_user":
                         # The "selected_articles" proposal
                         data["selected_articles"] = req["args"].get("articles", [])
 

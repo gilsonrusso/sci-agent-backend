@@ -9,6 +9,3 @@ from app.agents.sub_agents.supervisor import get_onboarding_supervisor
 # Currently `get_onboarding_supervisor()` returns a CompiledStateGraph (from `create_agent()`)
 # allowing compatibility with endpoints running `onboarding_graph.stream()` or `.invoke()`
 onboarding_graph = get_onboarding_supervisor()
-
-# Re-export OnboardingState if other modules still expect it from here for type hints
-from app.agents.state import OnboardingState

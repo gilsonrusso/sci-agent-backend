@@ -1,0 +1,9 @@
+{
+    "dependencies": [
+        "."
+    ],
+    "graphs": {
+        "onboarding": "./app/agents/onboarding.py:onboarding_graph"
+    },
+    "env": ".env"
+}

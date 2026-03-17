@@ -8,9 +8,11 @@ from app.application.use_cases.onboarding.create_project_use_case import (
     CreateProjectFromOnboardingUseCase,
 )
 from app.infrastructure.events.event_bus import LocalEventBus
-from typing import Annotated
-from langchain_core.tools import InjectedToolArg
+from typing import Annotated, Any, List, Dict
+from langchain_core.tools import InjectedToolArg, InjectedToolCallId
+from langchain_core.messages import ToolMessage
 from langchain.agents import create_agent
+from langgraph.types import Command
 from app.agents.state import OnboardingState
 
 
@@ -18,8 +20,9 @@ from app.agents.state import OnboardingState
 def create_project_and_roadmap(
     title: str,
     abstract: str,
-    tasks: list[dict],
+    tasks: List[Dict[str, Any]],
     state: Annotated[dict, InjectedToolArg],
+    tool_call_id: Annotated[str, InjectedToolCallId] = None
 ):
     """
     Cria o projeto formal e o roadmap no banco de dados.
@@ -50,34 +53,32 @@ def create_project_and_roadmap(
             repo = SQLProjectRepository(session)
             use_case = CreateProjectFromOnboardingUseCase(repo, LocalEventBus())
             project = use_case.execute(proposta)
-            return {"status": "success", "project_id": str(project.id)}
+            
+            return f"Projeto e Roadmap criados com sucesso! ID do Projeto: {project.id}. Informe o usuário que o Onboarding foi concluído e NÃO chame esta ferramenta novamente."
     except Exception as e:
-        return {"status": "error", "message": str(e)}
-
+        return f"Erro ao criar projeto: {str(e)}"
 
 CURATION_PROMPT = """Você é o **Gerente de Curadoria**.
-Sua única tarefa agora é consolidar os artigos selecionados em uma proposta formal.
+Sua tarefa é consolidar os artigos selecionados em uma proposta formal.
 
 **REGRAS CRÍTICAS:**
-1. Você **DEVE** chamar a ferramenta `create_project_and_roadmap` IMEDIATAMENTE após elaborar o título, resumo e tarefas.
-2. Não peça aprovação verbal. A chamada da ferramenta acionará automaticamente a interface de aprovação para o usuário.
+1. Você **DEVE** chamar a ferramenta `create_project_and_roadmap` com o título, resumo e tarefas elaboradas.
+2. Não peça aprovação verbal antes de usar a ferramenta. A chamada acionará a interface de aprovação para o usuário.
 3. Seus argumentos para a ferramenta devem ser detalhados e técnicos.
+4. Ao receber a mensagem de sucesso de que o projeto foi criado, apenas comunique o usuário.
 """
 
-
 def get_curation_agent():
-    # Usamos o middleware padrão que já funcionava para gerar interrupts
-    hil_middleware = HumanInTheLoopMiddleware(
-        interrupt_on={"create_project_and_roadmap": True},
-        description_prefix="Proposta de Projeto",
-    )
-
-    llm = get_llm()
     return create_agent(
-        model=llm,
+        model=get_llm(),
         tools=[create_project_and_roadmap],
         system_prompt=CURATION_PROMPT,
-        middleware=[hil_middleware],
+        middleware=[
+            HumanInTheLoopMiddleware(
+                interrupt_on={"create_project_and_roadmap": True},
+                description_prefix="Proposta de Projeto",
+            )
+        ],
         state_schema=OnboardingState,
         name="curation_manager",
     )

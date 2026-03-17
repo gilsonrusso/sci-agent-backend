@@ -40,9 +40,8 @@ class SearchResultStateMiddleware(AgentMiddleware):
             else:
                 update_data["suggested_articles"] = []
 
-            # Use Command.PARENT to reach the supervisor
+            # Update state silently and allow the agent to continue
             return Command(
-                graph=Command.PARENT,
                 update=update_data,
             )
 
@@ -71,13 +70,14 @@ class SearchResultStateMiddleware(AgentMiddleware):
                 except Exception:
                     pass
 
-            update_data = {
-                "messages": [result],
-                "suggested_articles": articles if articles else [],
-            }
+            update_data = {"messages": [result]}
+            if articles:
+                update_data["suggested_articles"] = articles
+            else:
+                update_data["suggested_articles"] = []
 
+            # Update state silently and allow the agent to continue
             return Command(
-                graph=Command.PARENT,
                 update=update_data,
             )
         return result
