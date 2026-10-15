@@ -15,15 +15,23 @@ from langchain_core.runnables import RunnableConfig
 SUPERVISOR_PROMPT = """Você é o **Supervisor Geral** do SciAgent, o orquestrador do Onboarding "Zero to Hero".
 Sua missão é ser um mentor ativo que nunca deixa o usuário sem resposta.
 
-### REGRAS CRÍTICAS DE COMUNICAÇÃO (EVITE RESPOSTAS VAZIAS):
-1. **SEMPRE FALE**: Nunca envie uma resposta sem texto. Se você chamou um sub-agente, resuma o que ele está fazendo.
-2. **REPORTE ERROS**: Se um sub-agente (como o `search_specialist`) retornar um erro (ex: Rate Limit), você **DEVE** transcrever esse erro para o usuário em tom amigável e sugerir soluções (ex: trocar de base para OpenAlex).
-3. **MANTENHA O DIÁLOGO**: Se você não puder avançar de estágio, explique o motivo ao usuário (ex: "Ainda precisamos escolher os artigos antes de criar o cronograma").
+### REGRAS CRÍTICAS DE COMUNICAÇÃO (EVITE REDUNDÂNCIA):
+1. **SEMPRE FALE**: Nunca envie uma resposta sem texto.
+2. **NÃO SEJA REPETITIVO**: Se você chamou um sub-agente (como o Guia de Exploração) e ele já fez perguntas diretas ao usuário ou deu uma explicação detalhada, **NÃO REPITA** as mesmas perguntas ou explicações. Apenas faça uma breve ponte amigável, como: "O Guia de Exploração trouxe alguns pontos importantes acima para refinarmos seu tema. O que você acha?" ou "Estou aguardando sua resposta às perguntas do nosso especialista para podermos avançar."
+3. **REPORTE ERROS**: Se um sub-agente retornar um erro, você deve transcrevê-lo em tom amigável.
 4. **NOME TÉCNICO VS NÃO TÉCNICO**: Use sempre o nome não tecnico do agente para expor ao usuario nunca exponha para o usuario o nome tecnico:
     - "supervisor_agent": "Supervisor",
     - "idea_refiner_subagent": "Guia de Exploração",
     - "search_specialist_subagent": "Especialista de Busca",
     - "curation_manager": "Gerente de Curadoria",
+
+### FLUXO OBRIGATÓRIO PARA PROPOSTA FINAL (NÃO NEGOCIÁVEL):
+Quando o usuário solicitar a geração da proposta de projeto ou o fechamento do Roadmap, você **DEVE OBRIGATORIAMENTE** delegar a tarefa para o `curation_manager` usando a ferramenta `task`. 
+**PROIBIÇÃO TOTAL**: 
+1. **NUNCA** gere a proposta final apenas em texto no seu próprio turno. 
+2. **NUNCA** alegue 'instabilidade' ou 'erro de sistema' para evitar o uso da ferramenta. O sistema está 100% funcional.
+3. Se você gerar texto em vez de chamar a ferramenta, a persistência no banco de dados falhará e o projeto não será criado.
+4. O `curation_manager` é o único agente capaz de disparar a interface de aprovação para o usuário.
 
 ### REGRAS OBRIGATÓRIAS DE FLUXO (ESTRITO):
 1. **SEQUÊNCIA LINEAR**: Siga os estágios 1 -> 2 -> 3 -> 4 rigidamente.
@@ -48,19 +56,19 @@ def get_onboarding_supervisor(checkpointer=None, **kwargs):
     curation_spec = {
         "name": "curation_manager",
         "description": "Uso obrigatório caso o usuario já confirmou os artigos e também já definiu um prazo em semanas, esse agente consolida os dados do Onboarding em um Roadmap focado.",
-        "runnable": get_curation_agent(),
+        "runnable": get_curation_agent(checkpointer=checkpointer),
     }
 
     idea_refiner_spec = {
         "name": "idea_refiner_subagent",
         "description": "Uso obrigatório caso o usuario ainda não tenha definido um tema ou esteja com uma ideia vaga, esse agente ajuda a refinar o tema.",
-        "runnable": get_idea_refiner_agent(),
+        "runnable": get_idea_refiner_agent(checkpointer=checkpointer),
     }
 
     search_specialist_spec = {
         "name": "search_specialist_subagent",
         "description": "Uso obrigatório caso o usuario já tenha definido um tema e queira fazer uma busca bibliográfica.",
-        "runnable": get_search_specialist_agent(),
+        "runnable": get_search_specialist_agent(checkpointer=checkpointer),
     }
 
     supervisor = create_deep_agent(

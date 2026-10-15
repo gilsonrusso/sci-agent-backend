@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # GEMINI_MODEL: str = "gemini-2.0-flash"
     GEMINI_MODEL: str = "gemini-3.1-flash-lite-preview"
 
+    # Search Tools Configuration
+    TAVILY_API_KEY: str | None = None
+
     # Langfuse Configuration
     LANGFUSE_SECRET_KEY: str | None = None
     LANGFUSE_PUBLIC_KEY: str | None = None

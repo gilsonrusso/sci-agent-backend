@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 # Trigger reload
 from fastapi.responses import JSONResponse
 from app.api.api import api_router
-from app.infrastructure.events.handlers import register_event_handlers
 
 # --- Setup LangSmith & other observability ---
 from app.core import observability
@@ -19,8 +18,7 @@ except AttributeError:
     pass
 
 
-# Registrar observadores de Eventos do Dominio
-register_event_handlers()
+
 
 
 @asynccontextmanager

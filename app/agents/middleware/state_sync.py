@@ -17,8 +17,8 @@ class SearchResultStateMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command:
         result = handler(request)
 
-        # If it's the search tool, we want to update the state
-        if request.tool.name == "execute_academic_search":
+        # If it's a search tool, we want to update the state
+        if request.tool.name in ["execute_academic_search", "execute_web_search"]:
             articles = []
             if isinstance(result, ToolMessage):
                 import json
@@ -34,7 +34,7 @@ class SearchResultStateMiddleware(AgentMiddleware):
                 except Exception:
                     pass
 
-            update_data = {"messages": [result]}
+            update_data = {"messages": [result], "has_searched": True}
             if articles:
                 update_data["suggested_articles"] = articles
             else:
@@ -54,7 +54,7 @@ class SearchResultStateMiddleware(AgentMiddleware):
         return self._maybe_update_state(request, result)
 
     def _maybe_update_state(self, request, result):
-        if request.tool.name == "execute_academic_search":
+        if request.tool.name in ["execute_academic_search", "execute_web_search"]:
             articles = []
             if isinstance(result, ToolMessage):
                 import json
@@ -70,7 +70,7 @@ class SearchResultStateMiddleware(AgentMiddleware):
                 except Exception:
                     pass
 
-            update_data = {"messages": [result]}
+            update_data = {"messages": [result], "has_searched": True}
             if articles:
                 update_data["suggested_articles"] = articles
             else:

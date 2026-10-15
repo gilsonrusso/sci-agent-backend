@@ -4,27 +4,19 @@ from typing import Any, Dict, List, Optional
 
 from app.agents.sub_agents.supervisor import get_onboarding_supervisor
 from app.api.deps import CurrentUser, SessionDep
-from app.application.use_cases.onboarding.create_project_use_case import (
-    CreateProjectFromOnboardingUseCase,
-)
-from app.domain.onboarding.entities import OnboardingProposta, OnboardingTask
+from app.services import project_service, onboarding_session_service
 from app.infrastructure.ai.checkpointer import get_checkpointer
 from app.infrastructure.ai.onboarding_service import OnboardingService
-from app.infrastructure.events.event_bus import LocalEventBus
-from app.infrastructure.repositories.sql_onboarding_session_repository import (
-    SQLOnboardingSessionRepository,
-)
-from app.infrastructure.repositories.sql_project_repository import SQLProjectRepository
 from app.models.project import Project
 from fastapi import APIRouter, Depends, HTTPException
 from langgraph.types import Command
 from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
 
 router = APIRouter()
 
 # Global Service
 onboarding_service = OnboardingService()
-event_bus = LocalEventBus()
 
 
 class ProjectCreateFromOnboarding(BaseModel):
@@ -40,34 +32,20 @@ def create_project(
     *, session: SessionDep, current_user: CurrentUser, data: ProjectCreateFromOnboarding
 ) -> Any:
     """
-    Create a project from onboarding data using DDD Use Case.
+    Create a project from onboarding data.
     """
-    repo = SQLProjectRepository(session)
-    use_case = CreateProjectFromOnboardingUseCase(repo, event_bus)
-
-    # Map DTO to Domain Entity
-    roadmap_tasks = [
-        OnboardingTask(
-            title=t.get("title", ""),
-            description=t.get("description", ""),
-            due_in_days=t.get("due_in_days", 7),
-        )
-        for t in data.roadmap
-    ]
-
-    proposta = OnboardingProposta(
-        topic=data.topic,
-        title=data.project_title or data.topic,
-        abstract=(
-            data.project_structure.get("abstract", "") if data.project_structure else ""
-        ),
-        roadmap=roadmap_tasks,
-        selected_articles=data.selected_articles,
-        owner_id=current_user.id,
-    )
-
     try:
-        return use_case.execute(proposta)
+        return project_service.create_project_from_onboarding(
+            session=session,
+            user_id=current_user.id,
+            title=data.project_title or data.topic,
+            abstract=(
+                data.project_structure.get("abstract", "") if data.project_structure else ""
+            ),
+            tasks=data.roadmap,
+            articles=data.selected_articles,
+            topic=data.topic,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -129,18 +107,17 @@ class ChatSyncResponse(BaseModel):
     structured_data: Optional[Dict[str, Any]] = None
 
 
-@router.post("/chat/invoke", response_model=ChatSyncResponse)
+@router.post("/chat/invoke")
 async def chat_onboarding_invoke(
     request: ChatRequest, current_user: CurrentUser, session: SessionDep
 ):
     """
-    Synchronous endpoint for Onboarding Multi-Agent via OnboardingService.
+    Streaming endpoint for Onboarding Multi-Agent via OnboardingService.
     Also tracks the history header in OnboardingSession Table.
     """
     # Create or update Session Header
     conv_id = uuid.UUID(request.conversation_id)
-    session_repo = SQLOnboardingSessionRepository(session)
-    existing_session = session_repo.get_by_id(conv_id)
+    existing_session = onboarding_session_service.get_onboarding_session(session, conv_id)
 
     if not existing_session:
         title = (
@@ -148,161 +125,41 @@ async def chat_onboarding_invoke(
             if len(request.message) > 30
             else request.message
         )
-        session_repo.create(current_user.id, conv_id, title)
+        onboarding_session_service.create_onboarding_session(session, current_user.id, conv_id, title)
     else:
-        session_repo.update_timestamp(conv_id)
+        onboarding_session_service.update_onboarding_session_timestamp(session, conv_id)
 
-    try:
-        result = await onboarding_service.chat(
+    return StreamingResponse(
+        onboarding_service.chat_stream(
             message=request.message,
             conversation_id=request.conversation_id,
             context=request.project_context,
             search_source=request.search_source,
             user_id=str(current_user.id),
-        )
-
-        if result["type"] == "interrupt":
-            response = ChatSyncResponse(
-                id=result["id"],
-                type="interrupt",
-                agent_name=result["agent_name"],
-                text=result.get("message") or "[AÇÃO REQUERIDA]",
-                interrupts=result["interrupts"],
-                structured_data=result.get("structured_data"),
-            )
-        else:
-            response = ChatSyncResponse(
-                id=str(uuid.uuid4()),
-                type="message",
-                agent_name=result["agent_name"],
-                text=result["message"],
-                structured_data=result.get("structured_data"),
-            )
-
-        print(
-            f"DEBUG: Final Response to Frontend: Type={response.type}, HasStructuredData={response.structured_data is not None}"
-        )
-        if response.structured_data:
-            print(
-                f"DEBUG: Structured Data Keys: {list(response.structured_data.keys())}"
-            )
-
-        return response
-
-    except Exception as e:
-        import traceback
-
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        ),
+        media_type="application/x-ndjson",
+    )
 
 
-@router.post("/chat/reply_interrupt", response_model=ChatSyncResponse)
+@router.post("/chat/reply_interrupt")
 async def chat_onboarding_reply_interrupt(
     request: ChatResumeRequest, current_user: CurrentUser
 ):
     """
-    Endpoint responsible to unlock graph after an Interrupt, with Race Condition checks.
+    Endpoint responsible to unlock graph after an Interrupt via StreamingResponse.
     """
-    config = {
-        "configurable": {
-            "thread_id": request.conversation_id,
-            "search_source": request.search_source,
-        }
-    }
-    if onboarding_service.langfuse_handler:
-        config["callbacks"] = [onboarding_service.langfuse_handler]
-
-    # Use context manager
-    async with get_checkpointer() as checkpointer:
-        graph = get_onboarding_supervisor(checkpointer=checkpointer)
-
-        # Verify we are replying to the CORRECT interrupt
-        state = await graph.aget_state(config)
-
-        # 1. Race condition protection: Check if the graph is actually paused and matches the interrupt_id
-        if not state.tasks or not state.tasks[0].interrupts:
-            raise HTTPException(
-                status_code=400,
-                detail="Grafo não está aguardando interrupções. Ele já pode ter sido resumido.",
-            )
-
-        current_interrupt_id = state.tasks[0].id
-        if request.interrupt_id != current_interrupt_id:
-            raise HTTPException(
-                status_code=400,
-                detail=f"O interrupt_id fornecido ({request.interrupt_id}) não corresponde ao estado atual do grafo ({current_interrupt_id}). Evitando race condition.",
-            )
-
-        num_hanging = len(state.tasks[0].interrupts)
-
-        # Decisions vector
-        if num_hanging > 1:
-            decisions = [request.decision] * num_hanging
-            resume_command = Command(resume={"decisions": decisions})
-        else:
-            resume_command = Command(resume={"decisions": [request.decision]})
-
-        try:
-            result = await graph.ainvoke(resume_command, config=config)
-
-            # Determine if we are still interrupted
-            state = await graph.aget_state(config)
-
-            is_interrupted = (
-                len(state.next) > 0
-                and len(state.tasks) > 0
-                and hasattr(state.tasks[0], "interrupts")
-                and state.tasks[0].interrupts
-            )
-
-            # Extract textual information using centralized logic
-            msgs_to_parse = (
-                result.get("messages", []) if isinstance(result, dict) else []
-            )
-            if not msgs_to_parse:
-                msgs_to_parse = state.values.get("messages", [])
-
-            extracted = onboarding_service.extract_messages(msgs_to_parse)
-
-            # Extract structured data dynamically using our new method
-            structured_data = await onboarding_service.extract_structured_data(
-                state.values, result if isinstance(result, dict) else {}
-            )
-
-            if is_interrupted:
-                response = ChatSyncResponse(
-                    id=state.tasks[0].id,
-                    type="interrupt",
-                    agent_name=extracted["agent_name"],
-                    text=extracted["text"] or "[AÇÃO REQUERIDA]",
-                    interrupts=state.tasks[0].interrupts[0].value,
-                    structured_data=structured_data if structured_data else None,
-                )
-            else:
-                response = ChatSyncResponse(
-                    id=str(uuid.uuid4()),
-                    type="message",
-                    agent_name=extracted["agent_name"],
-                    text=extracted["text"],
-                    structured_data=structured_data if structured_data else None,
-                )
-
-            print(
-                f"DEBUG REPY: Final Response: Type={response.type}, HasStructuredData={response.structured_data is not None}"
-            )
-            if response.structured_data:
-                print(
-                    f"DEBUG REPLY: Structured Data Keys: {list(response.structured_data.keys())}"
-                )
-
-            return response
-
-        except Exception as e:
-            print(f"ERROR in chat_onboarding_reply_interrupt: {e}")
-            import traceback
-
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=str(e))
+    return StreamingResponse(
+        onboarding_service.chat_stream(
+            message=None,
+            conversation_id=request.conversation_id,
+            search_source=request.search_source,
+            user_id=str(current_user.id),
+            is_resume=True,
+            resume_data=request.decision,
+            interrupt_id=request.interrupt_id
+        ),
+        media_type="application/x-ndjson",
+    )
 
 
 class SessionResponse(BaseModel):
@@ -316,8 +173,7 @@ def get_user_sessions(current_user: CurrentUser, session: SessionDep):
     """
     List all chat sessions for the Gemini Sidebar.
     """
-    repo = SQLOnboardingSessionRepository(session)
-    sessions = repo.get_all_for_user(current_user.id)
+    sessions = onboarding_session_service.get_all_sessions_for_user(session, current_user.id)
     return [
         SessionResponse(id=s.id, title=s.title, updated_at=s.updated_at)
         for s in sessions
@@ -331,16 +187,15 @@ def delete_user_session(
     """
     Deletes a specific chat session header.
     """
-    repo = SQLOnboardingSessionRepository(session)
     conv_id = uuid.UUID(conversation_id)
-    existing_session = repo.get_by_id(conv_id)
+    existing_session = onboarding_session_service.get_onboarding_session(session, conv_id)
 
     if not existing_session:
         raise HTTPException(status_code=404, detail="Sessão não encontrada")
     if existing_session.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Não autorizado")
 
-    repo.delete(conv_id)
+    onboarding_session_service.delete_onboarding_session(session, conv_id)
     return {"status": "success"}
 
 

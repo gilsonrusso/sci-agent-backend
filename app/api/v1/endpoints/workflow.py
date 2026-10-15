@@ -1,40 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from uuid import UUID
+from sqlmodel import select
 
 from app.api import deps
-from app.application.dto.workflow import AdvanceStageRequest, RevertStageRequest
-from app.application.use_cases.advance_article_stage import (
-    AdvanceArticleStageUseCase,
-    ArticleNotFoundException,
-)
-from app.application.use_cases.revert_article_stage import RevertArticleStageUseCase
-from app.infrastructure.repositories.sql_article_repository import SQLArticleRepository
-from app.infrastructure.events.simple_event_bus import event_bus
-from app.domain.workflow.state_machine import TransitionError
-from app.models.user import User
-from app.models.project_member import ProjectRole
-from app.domain.workflow.types import Role
+from app.schemas.workflow import AdvanceStageRequest, RevertStageRequest
+from app.core.workflow import Role, TransitionError
+from app.services import workflow_service
+from app.services.workflow_service import ArticleNotFoundException
+from app.models.project import Project
+from app.infrastructure.websocket.manager import workflow_ws_manager
 
 router = APIRouter()
-
-
-def get_advance_use_case(
-    db: deps.SessionDep,
-) -> AdvanceArticleStageUseCase:
-    repo = SQLArticleRepository(db)
-    return AdvanceArticleStageUseCase(article_repository=repo, event_bus=event_bus)
-
-
-def get_revert_use_case(
-    db: deps.SessionDep,
-) -> RevertArticleStageUseCase:
-    repo = SQLArticleRepository(db)
-    return RevertArticleStageUseCase(article_repository=repo, event_bus=event_bus)
-
-
-from sqlmodel import select
-from app.models.project import Project
 
 
 @router.get("/articles/board")
@@ -74,7 +50,7 @@ def get_board_articles(
 def advance_article_stage(
     article_id: UUID,
     request: AdvanceStageRequest,
-    use_case: AdvanceArticleStageUseCase = Depends(get_advance_use_case),
+    db: deps.SessionDep,
     current_user: deps.CurrentUser = None,
 ):
     """
@@ -83,7 +59,12 @@ def advance_article_stage(
     try:
         # In a real app we'd fetch the user role for this specific project here
         # request.user_role would be determined securely on the backend, not trusted from front
-        use_case.execute(article_id, request)
+        workflow_service.advance_article_stage(
+            session=db,
+            article_id=article_id,
+            user_id=request.user_id,
+            user_role=request.user_role,
+        )
         return {"status": "success", "message": "Article advanced successfully"}
     except ArticleNotFoundException as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -97,14 +78,21 @@ def advance_article_stage(
 def revert_article_stage(
     article_id: UUID,
     request: RevertStageRequest,
-    use_case: RevertArticleStageUseCase = Depends(get_revert_use_case),
+    db: deps.SessionDep,
     current_user: deps.CurrentUser = None,
 ):
     """
     Returns an article to a previous stage.
     """
     try:
-        use_case.execute(article_id, request)
+        workflow_service.revert_article_stage(
+            session=db,
+            article_id=article_id,
+            user_id=request.user_id,
+            user_role=request.user_role,
+            target_stage_str=request.target_stage,
+            reason=request.reason,
+        )
         return {"status": "success", "message": "Article reverted successfully"}
     except ArticleNotFoundException as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -114,10 +102,6 @@ def revert_article_stage(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-from fastapi import WebSocket, WebSocketDisconnect
-from app.infrastructure.websocket.manager import workflow_ws_manager
 
 
 @router.websocket("/ws/{article_id}")

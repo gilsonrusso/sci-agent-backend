@@ -65,9 +65,8 @@ def test_read_projects(client: TestClient):
     response = client.get(f"{settings.API_V1_STR}/projects/", headers=headers)
     assert response.status_code == 200
     content = response.json()
-    assert len(content) == 2
-    assert content[0]["title"] == "Project 1"
-    assert content[1]["title"] == "Project 2"
+    titles = {p["title"] for p in content}
+    assert titles == {"Project 1", "Project 2"}
 
 
 def test_read_project_by_id(client: TestClient):

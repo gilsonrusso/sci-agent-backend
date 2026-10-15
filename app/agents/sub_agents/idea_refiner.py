@@ -1,5 +1,6 @@
+from app.agents.state import OnboardingState
 from app.core.llm import get_llm
-from langchain.agents import create_agent
+from deepagents import create_deep_agent
 from langchain.tools import tool
 from langchain_core.messages import SystemMessage
 
@@ -15,10 +16,12 @@ Sua missão é ajudar o usuário a dar um "norte" para sua ideia de pesquisa, se
 Seu objetivo é tornar a ideia "madura o suficiente" para que possamos fazer uma busca bibliográfica que faça sentido para o usuário."""
 
 
-def get_idea_refiner_agent():
-    return create_agent(
+def get_idea_refiner_agent(checkpointer=None):
+    return create_deep_agent(
         model=get_llm(),
         tools=[],
         system_prompt=REFINER_SYSTEM_PROMPT,
-        name="idea_refiner_agent",
+        checkpointer=checkpointer,
+        context_schema=OnboardingState,
+        name="idea_refiner_subagent",
     )

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlmodel import Field, SQLModel, Relationship, Column, String
-from app.domain.workflow.types import SectionStatus
+from app.core.workflow import SectionStatus
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

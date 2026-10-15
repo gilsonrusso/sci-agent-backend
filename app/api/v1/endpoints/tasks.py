@@ -2,12 +2,12 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 from uuid import UUID
+from sqlmodel import select
 
 from app.api.deps import SessionDep, CurrentUser
-from app.infrastructure.repositories.sql_task_repository import SQLTaskRepository
-from app.application.use_cases.tasks.update_task_use_case import UpdateTaskUseCase
-from app.domain.entities.task import TaskStatus
-from app.domain.workflow.types import Role
+from app.models.project_task import ProjectTask, TaskStatus
+from app.core.workflow import Role
+from app.services import task_service
 
 router = APIRouter()
 
@@ -35,17 +35,15 @@ def update_task(
     data: TaskUpdateSchema,
 ):
     """
-    Update task status or assignment using DDD Use Case.
+    Update task status or assignment using task_service.
     """
-    repo = SQLTaskRepository(session)
-    use_case = UpdateTaskUseCase(repo)
-
     # In a real system, we'd fetch the user's role in the specific project.
     # For now, we'll use a placeholder role or fetch from context.
     user_role = Role.AUTHOR  # Placeholder
 
     try:
-        updated_task = use_case.execute(
+        updated_task = task_service.update_task(
+            session=session,
             task_id=task_id,
             user_id=current_user.id,
             user_role=user_role,
@@ -64,5 +62,5 @@ def list_project_tasks(
     *, session: SessionDep, current_user: CurrentUser, project_id: UUID
 ):
     """List all tasks for a project."""
-    repo = SQLTaskRepository(session)
-    return repo.get_by_project(project_id)
+    statement = select(ProjectTask).where(ProjectTask.project_id == project_id)
+    return session.exec(statement).all()

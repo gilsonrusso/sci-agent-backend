@@ -81,7 +81,7 @@ def seed_users():
             select(User).where(User.email == "roci@gmail.com")
         ).first()
 
-        from app.domain.workflow.types import MacroStage
+        from app.core.workflow import MacroStage
         from datetime import datetime, timedelta
 
         # Create mock project

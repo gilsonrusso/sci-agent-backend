@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlmodel import Field, SQLModel, Relationship, Column, String
-from app.domain.workflow.types import MacroStage
+from app.core.workflow import MacroStage
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -26,7 +26,10 @@ class Project(ProjectBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    members: list["ProjectMember"] = Relationship(back_populates="project")
+    members: list["ProjectMember"] = Relationship(
+        back_populates="project",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
     subsections: list["ProjectSubsection"] = Relationship(
         back_populates="project",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},

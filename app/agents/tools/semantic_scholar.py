@@ -1,65 +1,75 @@
 import logging
-from typing import List, Dict, Any
+import asyncio
+from typing import List, Dict, Any, Union
 import httpx
 
 logger = logging.getLogger(__name__)
 
+# Semáforo global para evitar muitas requisições paralelas (throttle local)
+S2_SEMAPHORE = asyncio.Semaphore(2)
 
-async def search_academic_papers_s2(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+async def search_academic_papers_s2(query: str, limit: int = 5) -> Union[List[Dict[str, Any]], str]:
     """
     Pesquisa artigos acadêmicos usando a API oficial do Semantic Scholar (S2).
-    Gratuita, rápida e livre de bloqueios de rate-limit severos (100 reqs/5min default).
+    Implementa retries com exponential backoff e controle de concorrência.
     """
-    logger.info(f"[SemanticScholar] Buscando por: '{query}' limit={limit}")
-    url = "https://api.semanticscholar.org/graph/v1/paper/search"
+    async with S2_SEMAPHORE:
+        logger.info(f"[SemanticScholar] Buscando por: '{query}' limit={limit}")
+        url = "https://api.semanticscholar.org/graph/v1/paper/search"
 
-    # URL encoded parameters
-    params = {
-        "query": query,
-        "limit": limit,
-        "fields": "title,authors,year,venue,abstract,url,citationCount",
-    }
+        params = {
+            "query": query,
+            "limit": limit,
+            "fields": "title,authors,year,venue,abstract,url,citationCount",
+        }
 
-    results = []
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params, timeout=15.0)
-            response.raise_for_status()
-            data = response.json()
+        max_retries = 3
+        retry_delay = 2.0  # delay inicial
 
-            papers = data.get("data", [])
-            for p in papers:
-                # Tratar autores (S2 retorna uma lista de dicionários)
-                authors_list = p.get("authors", [])
-                authors_str = ", ".join(
-                    [a.get("name", "") for a in authors_list if a.get("name")]
-                )
-                if not authors_str:
-                    authors_str = "Autores desconhecidos"
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(url, params=params, timeout=15.0)
+                    
+                    if response.status_code == 429:
+                        logger.warning(f"[SemanticScholar] Rate Limit (429) detectado na tentativa {attempt+1}")
+                        if attempt < max_retries - 1:
+                            wait_time = retry_delay * (2 ** attempt)
+                            logger.info(f"[SemanticScholar] Aguardando {wait_time}s antes de tentar novamente...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            return "ERRO_RATE_LIMIT: O Semantic Scholar está sobrecarregado. Por favor, aguarde alguns minutos ou mude para o 'OpenAlex' nas configurações."
 
-                paper = {
-                    "title": p.get("title") or "Título desconhecido",
-                    "authors": [
-                        a.get("name", "") for a in authors_list if a.get("name")
-                    ]
-                    or ["Autores desconhecidos"],
-                    "year": p.get("year"),
-                    "venue": p.get("venue") or "",
-                    "snippet": p.get("abstract")
-                    or "Sem resumo disponível (abstract não indexado).",
-                    "url": p.get("url")
-                    or f"https://api.semanticscholar.org/CorpusID:{p.get('corpusId')}",
-                    "citation_count": p.get("citationCount") or 0,
-                }
-                results.append(paper)
+                    response.raise_for_status()
+                    data = response.json()
 
-    except httpx.HTTPStatusError as e:
-        logger.error(f"[SemanticScholar] Rate Limit ou Erro HTTP: {e}")
-        if e.response.status_code == 429:
-            return "ERRO_RATE_LIMIT: O Semantic Scholar atingiu o limite de requisições. Por favor, tente trocar a ferramenta de busca para 'OpenAlex' no menu de ferramentas ou aguarde alguns minutos."
-        return f"ERRO_HTTP_{e.response.status_code}: Falha na comunicação com Semantic Scholar."
-    except Exception as e:
-        logger.error(f"[SemanticScholar] Erro na requisição: {e}")
-        return f"ERRO_CONEXAO: Não foi possível conectar ao Semantic Scholar. Verifique sua conexão ou tente outra base."
+                    papers = data.get("data", [])
+                    results = []
+                    for p in papers:
+                        authors_list = p.get("authors", [])
+                        paper = {
+                            "title": p.get("title") or "Título desconhecido",
+                            "authors": [a.get("name", "") for a in authors_list if a.get("name")] or ["Autores desconhecidos"],
+                            "year": p.get("year"),
+                            "venue": p.get("venue") or "",
+                            "snippet": p.get("abstract") or "Sem resumo disponível (abstract não indexado).",
+                            "url": p.get("url") or f"https://api.semanticscholar.org/CorpusID:{p.get('corpusId')}",
+                            "citation_count": p.get("citationCount") or 0,
+                        }
+                        results.append(paper)
+                    
+                    logger.info(f"[SemanticScholar] Busca concluída com {len(results)} resultados.")
+                    return results
 
-    return results
+            except httpx.HTTPStatusError as e:
+                logger.error(f"[SemanticScholar] Erro HTTP: {e}")
+                return f"ERRO_HTTP_{e.response.status_code}: Falha na comunicação com Semantic Scholar."
+            except Exception as e:
+                logger.error(f"[SemanticScholar] Erro inesperado: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    continue
+                return f"ERRO_CONEXAO: Falha técnica ao acessar a base de dados acadêmica."
+
+    return "ERRO_DESCONHECIDO: Falha ao processar a busca."

@@ -32,7 +32,8 @@ class OnboardingState(TypedDict):
     # Final Plan
     roadmap: List[Dict[str, Any]]  # List of tasks
     project_title: Optional[str]
-    abstract: Optional[str]  # Adicionado para facilitar extração
+    abstract: Optional[str]
+    project_id: Optional[str]  # ID do projeto após criação
     project_structure: Optional[
         Dict[str, str]
     ]  # e.g. {"abstract": "...", "introduction": "..."}
@@ -42,3 +43,4 @@ class OnboardingState(TypedDict):
 
     # Control Flags
     current_step: str  # 'clarify', 'search', 'roadmap', 'confirm'
+    has_searched: bool  # Flag para evitar múltiplas buscas no mesmo turno

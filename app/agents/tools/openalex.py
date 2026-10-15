@@ -1,98 +1,91 @@
 import logging
-from typing import List, Dict, Any
+import asyncio
+from typing import List, Dict, Any, Union
 import httpx
 
 logger = logging.getLogger(__name__)
 
+# Semáforo global para evitar muitas requisições paralelas (throttle local)
+OPENALEX_SEMAPHORE = asyncio.Semaphore(5)  # OpenAlex é mais tolerante
 
 async def search_academic_papers_openalex(
     query: str, limit: int = 5
-) -> List[Dict[str, Any]]:
+) -> Union[List[Dict[str, Any]], str]:
     """
     Pesquisa artigos acadêmicos usando a API oficial do OpenAlex.
-    Gratuita, rápida, não exige sequer chave de API (embora seja ideal enviar um e-mail de cortesia caso a escala seja massiva).
+    Implementa retries e controle de concorrência.
     """
-    logger.info(f"[OpenAlex] Buscando por: '{query}' limit={limit}")
-    url = "https://api.openalex.org/works"
+    async with OPENALEX_SEMAPHORE:
+        print(f"\033[1;36m[OpenAlex] Buscando por: '{query}' limit={limit}\033[0m", flush=True)
+        url = "https://api.openalex.org/works"
 
-    params = {
-        "search": query,
-        "per-page": limit,
-        # Você pode opcionalmente exigir is_oa (Open Access): "filter": "is_oa:true"
-    }
+        params = {
+            "search": query,
+            "per-page": limit,
+        }
 
-    results = []
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params, timeout=15.0)
-            response.raise_for_status()
-            data = response.json()
+        max_retries = 3
+        retry_delay = 1.5
 
-            works = data.get("results", [])
-            for w in works:
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(url, params=params, timeout=15.0)
+                    
+                    if response.status_code == 429:
+                        logger.warning(f"[OpenAlex] Rate Limit (429) na tentativa {attempt+1}")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay * (attempt + 1))
+                            continue
+                        else:
+                            return "ERRO_RATE_LIMIT: O OpenAlex atingiu o limite. Tente novamente em breve."
 
-                # Tratar autores (OpenAlex retorna `authorships`)
-                authorships = w.get("authorships", [])
-                authors_str = ", ".join(
-                    [a.get("author", {}).get("display_name", "") for a in authorships]
-                )
-                if not authors_str:
-                    authors_str = "Autores desconhecidos"
+                    response.raise_for_status()
+                    data = response.json()
 
-                # Tratar Inverted Abstract (OpenAlex não manda a string do resumo puro para economizar tráfego)
-                # Eles mandam um dicionário onde a key é a palavra e o value é um array de posições onde a palavra ocorre.
-                # Como pode ser complexo reconstruir, se a API retornou, não precisamos dele perfeito para a tool de demonstração.
-                abstract_inverted = w.get("abstract_inverted_index")
-                snippet = "Resumo indisponível"
-                if abstract_inverted:
-                    # Um método grosseiro de reconstrução:
-                    words = [
-                        ""
-                        for _ in range(
-                            max(
-                                [
-                                    pos
-                                    for arr in abstract_inverted.values()
-                                    for pos in arr
-                                ]
-                            )
-                            + 1
-                        )
-                    ]
-                    for word, positions in abstract_inverted.items():
-                        for pos in positions:
-                            words[pos] = word
-                    snippet = (
-                        " ".join(words)[:500] + "..."
-                    )  # Limitamos para não estourar tokens do contexto
+                    works = data.get("results", [])
+                    results = []
+                    for w in works:
+                        authorships = w.get("authorships", [])
+                        abstract_inverted = w.get("abstract_inverted_index")
+                        snippet = "Resumo indisponível"
+                        if abstract_inverted:
+                            try:
+                                words = [""] * (max([pos for arr in abstract_inverted.values() for pos in arr]) + 1)
+                                for word, positions in abstract_inverted.items():
+                                    for pos in positions:
+                                        words[pos] = word
+                                snippet = " ".join(words)[:500] + "..."
+                            except Exception:
+                                snippet = "Erro ao processar resumo."
 
-                # Local primário
-                venue_str = ""
-                primary_location = w.get("primary_location")
-                if primary_location and primary_location.get("source"):
-                    venue_str = primary_location.get("source").get("display_name", "")
+                        venue_str = ""
+                        primary_location = w.get("primary_location")
+                        if primary_location and primary_location.get("source"):
+                            venue_str = primary_location.get("source").get("display_name", "")
 
-                paper = {
-                    "title": w.get("title")
-                    or w.get("display_name")
-                    or "Título desconhecido",
-                    "authors": [
-                        a.get("author", {}).get("display_name", "") for a in authorships
-                    ]
-                    or ["Autores desconhecidos"],
-                    "year": w.get("publication_year"),
-                    "venue": venue_str,
-                    "snippet": snippet,
-                    "url": w.get("doi") or w.get("id"),
-                    "citation_count": w.get("cited_by_count") or 0,
-                }
-                results.append(paper)
+                        paper = {
+                            "title": w.get("title") or w.get("display_name") or "Título desconhecido",
+                            "authors": [a.get("author", {}).get("display_name", "") for a in authorships] or ["Autores desconhecidos"],
+                            "year": w.get("publication_year"),
+                            "venue": venue_str,
+                            "snippet": snippet,
+                            "url": w.get("doi") or w.get("id"),
+                            "citation_count": w.get("cited_by_count") or 0,
+                        }
+                        results.append(paper)
 
-    except httpx.HTTPStatusError as e:
-        logger.error(f"[OpenAlex] Rate Limit ou Erro HTTP: {e}")
-        return f"ERRO_API_OPENALEX: A base retornou erro {e.response.status_code}. Tente trocar para Semantic Scholar ou refine a busca."
-    except Exception as e:
-        logger.error(f"[OpenAlex] Erro na requisição: {e}")
-        return f"ERRO_CONEXAO_OPENALEX: Não foi possível conectar ao OpenAlex: {str(e)}"
+                    logger.info(f"[OpenAlex] Busca concluída com {len(results)} resultados.")
+                    return results
 
-    return results
+            except httpx.HTTPStatusError as e:
+                logger.error(f"[OpenAlex] Erro HTTP: {e}")
+                return f"ERRO_API_OPENALEX: A base retornou erro {e.response.status_code}."
+            except Exception as e:
+                logger.error(f"[OpenAlex] Erro na requisição: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    continue
+                return f"ERRO_CONEXAO_OPENALEX: Falha ao conectar ao OpenAlex."
+
+    return "ERRO_DESCONHECIDO"
